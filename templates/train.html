@@ -251,6 +251,7 @@
         let trainingStartTime = null;
         let batchesProcessed = 0;
         let lastBatchTime = null;
+        let totalBatchTime = 0;
         let avgBatchTime = 0;
 
         // Function to update GPU information
@@ -353,6 +354,8 @@
             updateTrainingSpeedMetrics(batch, totalBatches);
         }
         
+        // Variables to track training speed
+
         // Function to update training speed metrics
         function updateTrainingSpeedMetrics(batch, totalBatches) {
             if (trainingStartTime && batch > 1) {
