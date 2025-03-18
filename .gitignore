@@ -1,0 +1,13 @@
+# Ignore nyu_data folder
+nyu_data/
+
+# Ignore Python cache files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Also ignore common Python virtual environment names (optional but recommended)
+venv/
+env/
+.env/
+.venv/ 

@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Depth Estimation App</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/tailwindcss/2.2.19/tailwind.min.css" rel="stylesheet">
+    <style>
+        .camera-container {
+            position: relative;
+            width: 100%;
+            max-width: 500px;
+            margin: 0 auto;
+        }
+        #video {
+            width: 100%;
+            background-color: #333;
+            border-radius: 8px;
+        }
+        #canvas {
+            display: none;
+        }
+        .loader {
+            border-top-color: #3498db;
+            animation: spinner 1.5s linear infinite;
+        }
+        @keyframes spinner {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body class="bg-gray-100 min-h-screen">
+    <header class="bg-blue-600 text-white p-4">
+        <div class="container mx-auto">
+            <h1 class="text-2xl font-bold">Depth Estimation Web App</h1>
+            <p class="text-sm">NYU Depth V2 Dataset</p>
+        </div>
+    </header>
+
+    <main class="container mx-auto py-8 px-4">
+        <div class="bg-white rounded-lg shadow-md p-6 mb-6">
+            <h2 class="text-xl font-semibold mb-4">Camera Capture</h2>
+            
+            <div class="camera-container mb-4">
+                <video id="video" class="mb-4" autoplay playsinline></video>
+                <canvas id="canvas"></canvas>
+            </div>
+            
+            <div class="flex justify-center space-x-4 mb-4">
+                <button id="startCamera" class="bg-blue-500 hover:bg-blue-600 text-white py-2 px-4 rounded">
+                    Start Camera
+                </button>
+                <button id="captureBtn" class="bg-green-500 hover:bg-green-600 text-white py-2 px-4 rounded" disabled>
+                    Capture Image
+                </button>
+                <button id="uploadBtn" class="bg-purple-500 hover:bg-purple-600 text-white py-2 px-4 rounded">
+                    Upload Image
+                </button>
+                <input type="file" id="fileInput" accept="image/*" class="hidden">
+            </div>
+            
+            <div id="loading" class="hidden flex justify-center items-center my-4">
+                <div class="loader ease-linear rounded-full border-4 border-t-4 border-gray-200 h-12 w-12"></div>
+                <span class="ml-3">Processing...</span>
+            </div>
+        </div>
+        
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div class="bg-white rounded-lg shadow-md p-6">
+                <h3 class="text-lg font-semibold mb-3">Original Image</h3>
+                <div id="originalContainer" class="flex justify-center">
+                    <img id="originalImg" class="max-h-64 rounded" src="" alt="Original image will appear here" style="display: none;">
+                    <div id="originalPlaceholder" class="bg-gray-200 w-full h-64 flex items-center justify-center rounded">
+                        <p class="text-gray-500">Original image will appear here</p>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="bg-white rounded-lg shadow-md p-6">
+                <h3 class="text-lg font-semibold mb-3">Depth Map</h3>
+                <div id="depthContainer" class="flex justify-center">
+                    <img id="depthImg" class="max-h-64 rounded" src="" alt="Depth map will appear here" style="display: none;">
+                    <div id="depthPlaceholder" class="bg-gray-200 w-full h-64 flex items-center justify-center rounded">
+                        <p class="text-gray-500">Depth map will appear here</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="mt-8 text-center">
+            <a href="/train" class="bg-yellow-500 hover:bg-yellow-600 text-white py-2 px-6 rounded">
+                Train Model
+            </a>
+        </div>
+    </main>
+
+    <footer class="bg-gray-800 text-white p-4 mt-8">
+        <div class="container mx-auto text-center">
+            <p>Depth Estimation using NYU Depth V2 Dataset</p>
+        </div>
+    </footer>
+
+    <script>
+        // DOM elements
+        const video = document.getElementById('video');
+        const canvas = document.getElementById('canvas');
+        const startCameraBtn = document.getElementById('startCamera');
+        const captureBtn = document.getElementById('captureBtn');
+        const uploadBtn = document.getElementById('uploadBtn');
+        const fileInput = document.getElementById('fileInput');
+        const loading = document.getElementById('loading');
+        const originalImg = document.getElementById('originalImg');
+        const depthImg = document.getElementById('depthImg');
+        const originalPlaceholder = document.getElementById('originalPlaceholder');
+        const depthPlaceholder = document.getElementById('depthPlaceholder');
+
+        // Start camera when button is clicked
+        startCameraBtn.addEventListener('click', async () => {
+            try {
+                const constraints = {
+                    video: {
+                        width: { ideal: 320 },
+                        height: { ideal: 240 },
+                        facingMode: 'environment' // Use back camera if available
+                    }
+                };
+                
+                const stream = await navigator.mediaDevices.getUserMedia(constraints);
+                video.srcObject = stream;
+                startCameraBtn.textContent = 'Restart Camera';
+                captureBtn.disabled = false;
+            } catch (err) {
+                console.error('Error accessing camera:', err);
+                alert('Could not access the camera. Please allow camera access or try another browser.');
+            }
+        });
+
+        // Capture image from camera
+        captureBtn.addEventListener('click', () => {
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+            
+            // Convert canvas to base64 image
+            const imageData = canvas.toDataURL('image/jpeg');
+            
+            // Send image for processing
+            processImage(imageData);
+        });
+
+        // Handle image upload
+        uploadBtn.addEventListener('click', () => {
+            fileInput.click();
+        });
+
+        fileInput.addEventListener('change', (e) => {
+            if (e.target.files.length > 0) {
+                const file = e.target.files[0];
+                const reader = new FileReader();
+                reader.onload = (event) => {
+                    // Send image for processing
+                    const formData = new FormData();
+                    formData.append('image', file);
+                    processImageFile(formData);
+                };
+                reader.readAsDataURL(file);
+            }
+        });
+
+        // Process image from camera (base64)
+        function processImage(imageData) {
+            loading.classList.remove('hidden');
+            
+            fetch('/predict', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                },
+                body: `imageData=${encodeURIComponent(imageData)}`
+            })
+            .then(response => response.json())
+            .then(data => {
+                displayResults(data);
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                alert('An error occurred during processing.');
+            })
+            .finally(() => {
+                loading.classList.add('hidden');
+            });
+        }
+
+        // Process image from file upload (FormData)
+        function processImageFile(formData) {
+            loading.classList.remove('hidden');
+            
+            fetch('/predict', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                displayResults(data);
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                alert('An error occurred during processing.');
+            })
+            .finally(() => {
+                loading.classList.add('hidden');
+            });
+        }
+
+        // Display results
+        function displayResults(data) {
+            if (data.error) {
+                alert(data.error);
+                return;
+            }
+            
+            // Add timestamp to prevent caching
+            const timestamp = new Date().getTime();
+            originalImg.src = `${data.original}?t=${timestamp}`;
+            depthImg.src = `${data.depth}?t=${timestamp}`;
+            
+            // Show images, hide placeholders
+            originalImg.style.display = 'block';
+            depthImg.style.display = 'block';
+            originalPlaceholder.style.display = 'none';
+            depthPlaceholder.style.display = 'none';
+        }
+    </script>
+</body>
+</html>

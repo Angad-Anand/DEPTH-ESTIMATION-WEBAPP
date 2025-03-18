@@ -1,0 +1,527 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Train Depth Estimation Model</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/tailwindcss/2.2.19/tailwind.min.css" rel="stylesheet">
+    <style>
+        .loader {
+            border-top-color: #3498db;
+            animation: spinner 1.5s linear infinite;
+        }
+        @keyframes spinner {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        .gpu-active {
+            background-color: #4ade80;
+            color: #064e3b;
+        }
+        .gpu-inactive {
+            background-color: #f87171;
+            color: #7f1d1d;
+        }
+    </style>
+</head>
+<body class="bg-gray-100 min-h-screen">
+    <header class="bg-blue-600 text-white p-4">
+        <div class="container mx-auto">
+            <h1 class="text-2xl font-bold">Train Depth Estimation Model</h1>
+            <p class="text-sm">NYU Depth V2 Dataset</p>
+        </div>
+    </header>
+
+    <main class="container mx-auto py-8 px-4">
+        <!-- Hardware Info Panel -->
+        <div id="hardwareInfo" class="bg-white rounded-lg shadow-md p-6 mb-6">
+            <h2 class="text-xl font-semibold mb-4">Hardware Information</h2>
+            <div id="gpuStatus" class="p-3 rounded-md mb-4 text-center font-medium">
+                Checking hardware status...
+            </div>
+            
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                    <h3 class="font-medium mb-2">GPU Information</h3>
+                    <div id="gpuDetails" class="bg-gray-100 p-3 rounded-md">
+                        <p>Loading GPU information...</p>
+                    </div>
+                </div>
+                <div>
+                    <h3 class="font-medium mb-2">Training Speed Estimate</h3>
+                    <div id="speedEstimate" class="bg-gray-100 p-3 rounded-md">
+                        <p>GPU training can be 10-50x faster than CPU for deep learning models.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="bg-white rounded-lg shadow-md p-6 mb-6">
+            <h2 class="text-xl font-semibold mb-4">Training Parameters</h2>
+            
+            <form id="trainForm" class="space-y-4">
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div>
+                        <label for="epochs" class="block text-sm font-medium text-gray-700 mb-1">Number of Epochs</label>
+                        <input type="number" id="epochs" name="epochs" min="1" value="10" 
+                              class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500">
+                    </div>
+                    
+                    <div>
+                        <label for="batch_size" class="block text-sm font-medium text-gray-700 mb-1">Batch Size</label>
+                        <input type="number" id="batch_size" name="batch_size" min="1" value="16" 
+                              class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500">
+                        <span id="batchSizeHint" class="text-xs text-gray-500 hidden">Tip: Increase batch size when using GPU for faster training</span>
+                    </div>
+                    
+                    <div>
+                        <label for="learning_rate" class="block text-sm font-medium text-gray-700 mb-1">Learning Rate</label>
+                        <input type="number" id="learning_rate" name="learning_rate" step="0.0001" min="0.0001" value="0.001" 
+                              class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500">
+                    </div>
+                </div>
+                
+                <div class="flex justify-between items-center pt-4">
+                    <button type="submit" id="startTrainingBtn" class="bg-green-500 hover:bg-green-600 text-white py-2 px-6 rounded disabled:bg-red-300 disabled:hover:bg-red-300 disabled:cursor-not-allowed">
+                        Start Training
+                    </button>
+                    
+                    <a href="/" class="text-blue-500 hover:text-blue-700">
+                        Back to Main Page
+                    </a>
+                </div>
+            </form>
+        </div>
+        
+        <div id="loading" class="hidden">
+            <div class="bg-white rounded-lg shadow-md p-6">
+                <div class="flex items-center justify-center space-x-4">
+                    <div class="loader ease-linear rounded-full border-4 border-t-4 border-gray-200 h-12 w-12"></div>
+                    <span class="text-lg">Training in progress...</span>
+                </div>
+                
+                <div class="mt-4 p-4 bg-gray-100 rounded-md">
+                    <p class="text-sm">The model is being trained in the background. This may take a while depending on your hardware capabilities and dataset size.</p>
+                    <p class="text-sm mt-2" id="trainingDeviceInfo">Checking training device...</p>
+                </div>
+            </div>
+        </div>
+        
+        <div id="trainingStatus" class="hidden bg-white rounded-lg shadow-md p-6 mt-6">
+            <h3 class="text-lg font-semibold mb-3">Training Status</h3>
+            <div id="statusMessage" class="text-green-600"></div>
+            
+            <!-- Progress Bar -->
+            <div class="mt-4">
+                <div class="w-full bg-gray-200 rounded-full h-2.5">
+                    <div id="progressBar" class="bg-blue-600 h-2.5 rounded-full" style="width: 0%"></div>
+                </div>
+                <div id="progressText" class="text-sm text-gray-600 mt-2">0% Complete</div>
+            </div>
+            
+            <!-- Batch Progress and Loss Log -->
+            <div class="mt-4">
+                <h4 class="font-medium mb-2">Batch Progress and Loss</h4>
+                <div id="batchLog" class="bg-gray-100 p-3 rounded-md max-h-48 overflow-y-auto">
+                    <!-- Batch updates will be logged here -->
+                </div>
+            </div>
+            
+            <!-- GPU Utilization -->
+            <div class="mt-4" id="gpuUtilizationSection">
+                <h4 class="font-medium mb-2">GPU Utilization</h4>
+                <div class="bg-gray-100 p-3 rounded-md">
+                    <div class="mb-2">
+                        <span class="font-medium">Memory Usage:</span>
+                        <div class="w-full bg-gray-200 rounded-full h-2.5 mt-1">
+                            <div id="gpuMemBar" class="bg-purple-600 h-2.5 rounded-full" style="width: 0%"></div>
+                        </div>
+                        <div id="gpuMemText" class="text-xs text-gray-600 mt-1">0 GB / 0 GB</div>
+                    </div>
+                    <div class="text-sm" id="gpuEfficiencyInfo">
+                        <p>Check GPU efficiency metrics here during training.</p>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Training Speed Metrics -->
+            <div class="mt-4">
+                <h4 class="font-medium mb-2">Training Speed</h4>
+                <div id="trainingSpeed" class="bg-gray-100 p-3 rounded-md text-sm">
+                    <p>Calculating training speed...</p>
+                </div>
+            </div>
+            
+            <!-- Refresh Progress Button -->
+            <div class="mt-4">
+                <button id="refreshProgressBtn" class="bg-blue-500 hover:bg-blue-600 text-white py-2 px-4 rounded">
+                    Refresh Progress
+                </button>
+            </div>
+            
+            <div class="mt-4 p-4 border border-gray-200 rounded-md">
+                <h4 class="font-medium mb-2">Dataset Information</h4>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                        <p><strong>Training CSV:</strong> nyu2_train.csv</p>
+                        <p><strong>Test CSV:</strong> nyu2_test.csv</p>
+                    </div>
+                    <div>
+                        <p><strong>Data Directory:</strong> data/</p>
+                        <p><strong>Model Save Path:</strong> static/model.pth</p>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="mt-6 border-t border-gray-200 pt-4">
+                <h4 class="font-medium mb-2">Training Tips</h4>
+                <ul class="list-disc pl-5 space-y-1 text-sm">
+                    <li>For better results, train for at least 20 epochs</li>
+                    <li>Increase batch size when using GPU (32-64) for better parallelization</li>
+                    <li>Reduce batch size if you encounter memory issues</li>
+                    <li>Consider lowering learning rate to 0.0005 for more stable training</li>
+                    <li>GPU training is typically 10-50x faster than CPU training</li>
+                    <li>Mixed precision training is automatically enabled on GPU for faster training</li>
+                </ul>
+            </div>
+            
+            <div class="mt-6">
+                <button id="checkModelBtn" class="bg-blue-500 hover:bg-blue-600 text-white py-2 px-4 rounded">
+                    Check Model Status
+                </button>
+                <span id="modelStatus" class="ml-3"></span>
+            </div>
+        </div>
+        
+        <div class="bg-white rounded-lg shadow-md p-6 mt-6">
+            <h3 class="text-lg font-semibold mb-3">About NYU Depth V2 Dataset</h3>
+            <p class="mb-2">The NYU Depth V2 dataset contains RGB and depth images captured using the Microsoft Kinect. It includes:</p>
+            <ul class="list-disc pl-5 space-y-1">
+                <li>Over 1400 RGB-D images</li>
+                <li>Indoor scenes from various room types</li>
+                <li>Official split for training and testing</li>
+                <li>Depth maps aligned with RGB images</li>
+            </ul>
+            
+            <div class="mt-4">
+                <p class="font-medium">Data Structure:</p>
+                <pre class="bg-gray-100 p-3 rounded text-sm overflow-x-auto mt-2">
+├── nyu2_train
+│   ├── basement_0001a_out
+│   ├── bathroom_0001_out
+│   └── ...
+└── nyu2_test
+    ├── ...
+                </pre>
+            </div>
+        </div>
+    </main>
+
+    <footer class="bg-gray-800 text-white p-4 mt-8">
+        <div class="container mx-auto text-center">
+            <p>Depth Estimation using NYU Depth V2 Dataset</p>
+        </div>
+    </footer>
+
+    <script>
+        // DOM elements
+        const trainForm = document.getElementById('trainForm');
+        const startTrainingBtn = document.getElementById('startTrainingBtn');
+        const loading = document.getElementById('loading');
+        const trainingStatus = document.getElementById('trainingStatus');
+        const statusMessage = document.getElementById('statusMessage');
+        const deviceInfo = document.getElementById('trainingDeviceInfo');
+        const checkModelBtn = document.getElementById('checkModelBtn');
+        const modelStatus = document.getElementById('modelStatus');
+        const progressBar = document.getElementById('progressBar');
+        const progressText = document.getElementById('progressText');
+        const refreshProgressBtn = document.getElementById('refreshProgressBtn');
+        const batchLog = document.getElementById('batchLog');
+        const gpuStatus = document.getElementById('gpuStatus');
+        const gpuDetails = document.getElementById('gpuDetails');
+        const speedEstimate = document.getElementById('speedEstimate');
+        const gpuMemBar = document.getElementById('gpuMemBar');
+        const gpuMemText = document.getElementById('gpuMemText');
+        const gpuEfficiencyInfo = document.getElementById('gpuEfficiencyInfo');
+        const trainingSpeed = document.getElementById('trainingSpeed');
+        const batchSizeHint = document.getElementById('batchSizeHint');
+        const gpuUtilizationSection = document.getElementById('gpuUtilizationSection');
+
+        // Variables to track training speed
+        let trainingStartTime = null;
+        let batchesProcessed = 0;
+        let lastBatchTime = null;
+        let avgBatchTime = 0;
+
+        // Function to update GPU information
+        async function updateGPUInfo() {
+            try {
+                const response = await fetch('/gpu_info');
+                const data = await response.json();
+                
+                if (data.has_gpu) {
+                    // GPU is available
+                    gpuStatus.textContent = 'GPU Detected: Training will use GPU acceleration';
+                    gpuStatus.className = 'p-3 rounded-md mb-4 text-center font-medium gpu-active';
+                    
+                    // Show detailed GPU info
+                    gpuDetails.innerHTML = `
+                        <p><strong>GPU:</strong> ${data.name}</p>
+                        <p><strong>CUDA Version:</strong> ${data.cuda_version}</p>
+                        <p><strong>Number of GPUs:</strong> ${data.count}</p>
+                        <p><strong>Memory Allocated:</strong> ${data.memory_allocated}</p>
+                        <p><strong>Memory Reserved:</strong> ${data.memory_reserved}</p>
+                    `;
+                    
+                    // Show estimated speed improvement
+                    speedEstimate.innerHTML = `
+                        <p><strong>Expected Speedup:</strong> 10-50x faster than CPU training</p>
+                        <p>Using GPU acceleration with mixed precision training.</p>
+                        <p>Recommended batch size: 32-64 (increase for better GPU utilization)</p>
+                    `;
+                    
+                    // Show batch size hint
+                    batchSizeHint.classList.remove('hidden');
+                    
+                    // Update device info
+                    deviceInfo.textContent = `Training will run on GPU: ${data.name}`;
+                    
+                    // Show GPU utilization section
+                    gpuUtilizationSection.classList.remove('hidden');
+                } else {
+                    // No GPU available
+                    gpuStatus.textContent = 'No GPU Detected: Training will use CPU (slower)';
+                    gpuStatus.className = 'p-3 rounded-md mb-4 text-center font-medium gpu-inactive';
+                    
+                    // Show CPU info
+                    gpuDetails.innerHTML = `
+                        <p>${data.message}</p>
+                        <p>Training will proceed on CPU, which will be significantly slower.</p>
+                        <p>Consider using a machine with GPU support for faster training.</p>
+                    `;
+                    
+                    // Show estimated speed comparison
+                    speedEstimate.innerHTML = `
+                        <p><strong>Performance Note:</strong> CPU training will be 10-50x slower than GPU.</p>
+                        <p>Recommended settings for CPU training:</p>
+                        <p>- Smaller batch size (4-8)</p>
+                        <p>- Fewer epochs for testing</p>
+                    `;
+                    
+                    // Update device info
+                    deviceInfo.textContent = 'Training will run on CPU (slower). Consider using a GPU for faster training.';
+                    
+                    // Hide GPU utilization section
+                    gpuUtilizationSection.classList.add('hidden');
+                }
+            } catch (error) {
+                console.error('Error getting GPU info:', error);
+                gpuStatus.textContent = 'Error checking GPU status';
+                gpuStatus.className = 'p-3 rounded-md mb-4 text-center font-medium bg-yellow-200 text-yellow-800';
+            }
+        }
+
+        // Function to update progress bar
+        function updateProgress(progress) {
+            progressBar.style.width = `${progress}%`;
+            progressText.textContent = `${progress}% Complete`;
+        }
+
+        // Function to log batch progress and loss
+        function logBatchProgress(batch, totalBatches, loss) {
+            const now = new Date();
+            const logEntry = document.createElement('div');
+            logEntry.className = 'text-sm text-gray-700';
+            
+            // Calculate batch processing speed
+            if (lastBatchTime) {
+                const batchTime = (now - lastBatchTime) / 1000; // in seconds
+                avgBatchTime = (avgBatchTime * batchesProcessed + batchTime) / (batchesProcessed + 1);
+                batchesProcessed++;
+                
+                logEntry.textContent = `Batch ${batch}/${totalBatches}: Loss = ${loss.toFixed(4)} (${batchTime.toFixed(2)}s)`;
+            } else {
+                logEntry.textContent = `Batch ${batch}/${totalBatches}: Loss = ${loss.toFixed(4)}`;
+            }
+            
+            lastBatchTime = now;
+            
+            batchLog.appendChild(logEntry);
+            batchLog.scrollTop = batchLog.scrollHeight; // Auto-scroll to the latest log
+            
+            // Update training speed metrics
+            updateTrainingSpeedMetrics(batch, totalBatches);
+        }
+        
+        // Function to update training speed metrics
+        function updateTrainingSpeedMetrics(batch, totalBatches) {
+            if (trainingStartTime && batch > 1) {
+                const elapsedSeconds = (new Date() - trainingStartTime) / 1000;
+                const batchesPerSecond = batch / elapsedSeconds;
+                const estimatedTotalTime = totalBatches / batchesPerSecond;
+                const remainingTime = estimatedTotalTime - elapsedSeconds;
+                
+                trainingSpeed.innerHTML = `
+                    <p><strong>Processing Speed:</strong> ${batchesPerSecond.toFixed(2)} batches/second</p>
+                    <p><strong>Average Time per Batch:</strong> ${avgBatchTime.toFixed(2)} seconds</p>
+                    <p><strong>Elapsed Time:</strong> ${formatTime(elapsedSeconds)}</p>
+                    <p><strong>Estimated Remaining:</strong> ${formatTime(remainingTime)}</p>
+                `;
+            }
+        }
+        
+        // Format seconds to HH:MM:SS
+        function formatTime(seconds) {
+            const hrs = Math.floor(seconds / 3600);
+            const mins = Math.floor((seconds % 3600) / 60);
+            const secs = Math.floor(seconds % 60);
+            return `${hrs.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+        }
+
+        // Function to check training progress
+        async function checkTrainingProgress() {
+            try {
+                const response = await fetch('/training_progress');
+                const data = await response.json();
+                
+                if (data.is_training) {
+                    trainingStatus.classList.remove('hidden');
+                    loading.classList.remove('hidden');
+                    startTrainingBtn.disabled = true;
+                    updateProgress(data.progress);
+
+                    // Initialize training start time if not set
+                    if (!trainingStartTime && data.batch > 0) {
+                        trainingStartTime = new Date();
+                    }
+
+                    // Log batch progress and loss if available
+                    if (data.batch && data.total_batches && data.loss) {
+                        logBatchProgress(data.batch, data.total_batches, data.loss);
+                    }
+                    
+                    // Update GPU memory usage if available
+                    if (data.gpu_info) {
+                        // Calculate memory percentage
+                        const memUsed = parseFloat(data.gpu_info.memory_used_gb);
+                        const memTotal = parseFloat(data.gpu_info.memory_total_gb);
+                        if (!isNaN(memUsed) && !isNaN(memTotal) && memTotal > 0) {
+                            const memPercent = (memUsed / memTotal) * 100;
+                            gpuMemBar.style.width = `${memPercent}%`;
+                            gpuMemText.textContent = `${memUsed} GB / ${memTotal} GB (${memPercent.toFixed(1)}%)`;
+                            
+                            // Add efficiency tips based on memory usage
+                            if (memPercent < 50) {
+                                gpuEfficiencyInfo.innerHTML = `
+                                    <p class="text-blue-600">GPU memory usage is low. Consider increasing batch size for better utilization.</p>
+                                `;
+                            } else if (memPercent > 90) {
+                                gpuEfficiencyInfo.innerHTML = `
+                                    <p class="text-red-600">GPU memory usage is very high. Consider decreasing batch size to avoid out-of-memory errors.</p>
+                                `;
+                            } else {
+                                gpuEfficiencyInfo.innerHTML = `
+                                    <p class="text-green-600">GPU memory usage is optimal.</p>
+                                `;
+                            }
+                        }
+                    }
+                } else {
+                    if (data.progress === 100) {
+                        // Training completed
+                        trainingStatus.classList.remove('hidden');
+                        updateProgress(100);
+                        statusMessage.textContent = 'Training completed successfully!';
+                        loading.classList.add('hidden');
+                        startTrainingBtn.disabled = false;
+                    } else {
+                        startTrainingBtn.disabled = false;
+                        loading.classList.add('hidden');
+                    }
+                }
+            } catch (error) {
+                console.error('Error checking training progress:', error);
+            }
+        }
+
+        // Check training progress and GPU info on page load
+        window.addEventListener('DOMContentLoaded', async () => {
+            // Check GPU info
+            await updateGPUInfo();
+            
+            // Check training progress immediately
+            await checkTrainingProgress();
+        });
+
+        // Handle form submission
+        trainForm.addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            // Get form data
+            const formData = new FormData(trainForm);
+            
+            // Reset training metrics
+            trainingStartTime = null;
+            batchesProcessed = 0;
+            lastBatchTime = null;
+            avgBatchTime = 0;
+            batchLog.innerHTML = '';
+            
+            // Disable button and show loading
+            startTrainingBtn.disabled = true;
+            loading.classList.remove('hidden');
+            
+            try {
+                const response = await fetch('/start_training', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                const data = await response.json();
+                
+                if (data.message) {
+                    // Show training status
+                    trainingStatus.classList.remove('hidden');
+                    statusMessage.textContent = data.message;
+                }
+            } catch (error) {
+                console.error('Error starting training:', error);
+                alert('An error occurred while starting the training process.');
+            } finally {
+                // Re-enable button after a delay (to prevent double clicks)
+                setTimeout(() => {
+                    startTrainingBtn.disabled = false;
+                }, 3000);
+            }
+        });
+
+        // Check model status
+        checkModelBtn.addEventListener('click', async () => {
+            try {
+                const response = await fetch('/static/model.pth', { method: 'HEAD' });
+                
+                if (response.ok) {
+                    const lastModified = response.headers.get('last-modified');
+                    const date = lastModified ? new Date(lastModified).toLocaleString() : 'unknown date';
+                    modelStatus.textContent = `Model found! Last updated: ${date}`;
+                    modelStatus.className = 'ml-3 text-green-600';
+                } else {
+                    modelStatus.textContent = 'No trained model found.';
+                    modelStatus.className = 'ml-3 text-red-600';
+                }
+            } catch (error) {
+                modelStatus.textContent = 'Error checking model status.';
+                modelStatus.className = 'ml-3 text-red-600';
+            }
+        });
+
+        // Refresh progress button
+        refreshProgressBtn.addEventListener('click', async () => {
+            await checkTrainingProgress();
+        });
+
+        // Polling to check training progress
+        setInterval(checkTrainingProgress, 5000); // Check every 5 seconds
+    </script>
+</body>
+</html>
